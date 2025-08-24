@@ -98,14 +98,134 @@ class ChannelListView(APIView):
 class ChannelDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
+    def get_channel_and_check_access(
+        self, request, server_id, channel_id, required_permission="can_view"
+    ):
+        try:
+            server = Server.objects.get(pk=server_id)
+        except Server.DoesNotExist:
+            return (
+                None,
+                None,
+                Response(
+                    {"error": "Server not found."}, status=status.HTTP_404_NOT_FOUND
+                ),
+            )
+
+        membership = server.membership.filter(user=request.user).first()
+        if not membership:
+            return (
+                None,
+                None,
+                Response(
+                    {"error": "You are not a member of this server."},
+                    status=status.HTTP_403_FORBIDDEN,
+                ),
+            )
+
+        try:
+            channel = server.channels.get(pk=channel_id)
+        except Channel.DoesNotExist:
+            return (
+                None,
+                membership,
+                Response(
+                    {"error": "Channel not found."}, status=status.HTTP_400_BAD_REQUEST
+                ),
+            )
+        # Check channel permissions
+        permissions = channel.get_user_permissions(request.user)
+        if not permissions[required_permission]:
+            return (
+                None,
+                membership,
+                Response(
+                    {
+                        "error": f'You do not have permission to {required_permission.replace("can_", "")} this channel'
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                ),
+            )
+
+        return channel, membership, None
+
     def get(self, request, server_id, channel_id):
-        pass
+
+        channel, _, error_response = self.get_channel_and_check_access(
+            request, server_id, channel_id, "can_view"
+        )
+
+        if error_response:
+            return error_response
+
+        channel_serializer = ChannelSerializer(channel, context={"request": request})
+        return Response(channel_serializer.data, status=status.HTTP_200_OK)
 
     def patch(self, request, server_id, channel_id):
-        pass
+        channel, membership, error_response = self.get_channel_and_check_access(
+            request, server_id, channel_id, "can_view"
+        )
+        if error_response:
+            return error_response
+
+        if membership.role not in ["owner", "admin"]:
+            return Response(
+                {"error": "You do not have permission to update this channel."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        channel_serializer = ChannelCreateSerializer(
+            channel, data=request.data, partial=True
+        )
+
+        if channel_serializer.is_valid():
+            if "name" in channel_serializer.validated_data:
+                if (
+                    Channel.objects.filter(
+                        server=channel.server,
+                        name=channel_serializer.validated_data["name"],
+                    )
+                    .exclude(id=channel_id)
+                    .exists()
+                ):
+                    return Response(
+                        {"error": "Another channel with the same name already exists."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            else:
+                updated_channel = channel_serializer.save()
+                response_serializer = ChannelSerializer(
+                    updated_channel, context={"request": request}
+                )
+                return Response(response_serializer.data, status=status.HTTP_200_OK)
+        return Response(
+            {"error": "Can not update the channel details."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     def delete(self, request, server_id, channel_id):
-        pass
+        channel, membership, error_response = self.get_channel_and_check_access(
+            request, server_id, channel_id
+        )
+
+        if error_response:
+            return error_response
+
+        if membership.role != "owner":
+            return Response(
+                {"error": "Only server owner can delete channels"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Prevent deleting default channel
+        if channel.name == "general":
+            return Response(
+                {"error": 'Cannot delete the default "general" channel'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        channel.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class MessageListView(APIView):
