@@ -3,8 +3,14 @@ from rest_framework import status
 from rest_framework.views import APIView
 from .models import Channel, Message
 from rest_framework.permissions import IsAuthenticated
-from .serializers import ChannelSerializer, ChannelCreateSerializer
+from .serializers import (
+    ChannelSerializer,
+    ChannelCreateSerializer,
+    MessageCreateSerializer,
+    MessageSerializer,
+)
 from servers.models import Server
+from .utils import get_channel_and_check_access, get_message_and_check_access
 
 
 class ChannelListView(APIView):
@@ -98,60 +104,9 @@ class ChannelListView(APIView):
 class ChannelDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def get_channel_and_check_access(
-        self, request, server_id, channel_id, required_permission="can_view"
-    ):
-        try:
-            server = Server.objects.get(pk=server_id)
-        except Server.DoesNotExist:
-            return (
-                None,
-                None,
-                Response(
-                    {"error": "Server not found."}, status=status.HTTP_404_NOT_FOUND
-                ),
-            )
-
-        membership = server.membership.filter(user=request.user).first()
-        if not membership:
-            return (
-                None,
-                None,
-                Response(
-                    {"error": "You are not a member of this server."},
-                    status=status.HTTP_403_FORBIDDEN,
-                ),
-            )
-
-        try:
-            channel = server.channels.get(pk=channel_id)
-        except Channel.DoesNotExist:
-            return (
-                None,
-                membership,
-                Response(
-                    {"error": "Channel not found."}, status=status.HTTP_400_BAD_REQUEST
-                ),
-            )
-        # Check channel permissions
-        permissions = channel.get_user_permissions(request.user)
-        if not permissions[required_permission]:
-            return (
-                None,
-                membership,
-                Response(
-                    {
-                        "error": f'You do not have permission to {required_permission.replace("can_", "")} this channel'
-                    },
-                    status=status.HTTP_403_FORBIDDEN,
-                ),
-            )
-
-        return channel, membership, None
-
     def get(self, request, server_id, channel_id):
 
-        channel, _, error_response = self.get_channel_and_check_access(
+        channel, _, error_response = get_channel_and_check_access(
             request, server_id, channel_id, "can_view"
         )
 
@@ -162,7 +117,7 @@ class ChannelDetailView(APIView):
         return Response(channel_serializer.data, status=status.HTTP_200_OK)
 
     def patch(self, request, server_id, channel_id):
-        channel, membership, error_response = self.get_channel_and_check_access(
+        channel, membership, error_response = get_channel_and_check_access(
             request, server_id, channel_id, "can_view"
         )
         if error_response:
@@ -173,7 +128,6 @@ class ChannelDetailView(APIView):
                 {"error": "You do not have permission to update this channel."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-
         channel_serializer = ChannelCreateSerializer(
             channel, data=request.data, partial=True
         )
@@ -192,20 +146,15 @@ class ChannelDetailView(APIView):
                         {"error": "Another channel with the same name already exists."},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
-            else:
-                updated_channel = channel_serializer.save()
-                response_serializer = ChannelSerializer(
-                    updated_channel, context={"request": request}
-                )
-                return Response(response_serializer.data, status=status.HTTP_200_OK)
-        return Response(
-            {"error": "Can not update the channel details."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+            updated_channel = channel_serializer.save()
+            response_serializer = ChannelSerializer(
+                updated_channel, context={"request": request}
+            )
+            return Response(response_serializer.data, status=status.HTTP_200_OK)
 
     def delete(self, request, server_id, channel_id):
-        channel, membership, error_response = self.get_channel_and_check_access(
-            request, server_id, channel_id
+        channel, membership, error_response = get_channel_and_check_access(
+            request, server_id, channel_id, "can_view"
         )
 
         if error_response:
@@ -232,20 +181,93 @@ class MessageListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, server_id, channel_id):
-        pass
+        channel, _, error_response = get_channel_and_check_access(
+            request, server_id, channel_id, "can_read"
+        )
+        if error_response:
+            return error_response
+
+        messages = channel.messages.filter(is_deleted=False)
+        message_serializer = MessageSerializer(
+            messages, many=True, context={"request": request}
+        )
+        return Response(message_serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request, server_id, channel_id):
-        pass
+        channel, membership, error_response = get_channel_and_check_access(
+            request, server_id, channel_id, "can_post"
+        )
+        if error_response:
+            return error_response
+
+        message_serializer = MessageCreateSerializer(data=request.data)
+        if not message_serializer.is_valid():
+            return Response(
+                message_serializer.errors, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        new_message = message_serializer.save(author=request.user, channel=channel)
+        response_serializer = MessageSerializer(
+            new_message, context={"request": request}
+        )
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
 class MessageDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, server_id, channel_id, message_id):
-        pass
+        _, _, message, error_response = get_message_and_check_access(
+            request, server_id, channel_id, message_id, "can_read"
+        )
+        if error_response:
+            return error_response
+
+        message_serializer = MessageSerializer(message, context={"request": request})
+        return Response(message_serializer.data, status=status.HTTP_200_OK)
 
     def patch(self, request, server_id, channel_id, message_id):
-        pass
+        _, _, message, error_response = get_message_and_check_access(
+            request, server_id, channel_id, message_id, "can_read", True
+        )
+        if error_response:
+            return error_response
+        if message.is_deleted:
+            return Response(
+                {"error": "Can not edit deleted messages."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if "content" not in request.data:
+            return Response(
+                {"error": "Only the content can be edited."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        message_serializer = MessageCreateSerializer(
+            message, data=request.data, partial=True
+        )
+        if message_serializer.is_valid():
+            updated_message = message_serializer.save()
+            response_serializer = MessageSerializer(
+                updated_message, context={"request": request}
+            )
+            return Response(response_serializer.data, status=status.HTTP_200_OK)
+
+        return Response(message_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, server_id, channel_id, message_id):
-        pass
+        _, _, message, error_response = get_message_and_check_access(
+            request, server_id, channel_id, message_id, "can_read", True
+        )
+        if error_response:
+            return error_response
+
+        if message.is_deleted:
+            return Response(
+                {"error": "Message is already deleted."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        message.is_deleted = True
+        message.save()
+        return Response(status=status.HTTP_204_NO_CONTENT)
