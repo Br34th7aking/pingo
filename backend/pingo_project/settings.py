@@ -12,6 +12,9 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 from datetime import timedelta
+import environ
+
+env = environ.Env()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -44,7 +47,23 @@ INSTALLED_APPS = [
     "common",
     "servers",
     "pingo_channels",
+    "channels",  # django-channels
 ]
+
+ASGI_APPLICATION = "pingo_project.asgi.application"
+
+# Channel Layers - Redis Configuration
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [env("REDIS_URL", default="redis://redis:6379")],
+            "capacity": 1000,  # Maximum messages to store
+            "expiry": 60,  # Message expiry in seconds
+        },
+    },
+}
+
 
 AUTH_USER_MODEL = "accounts.CustomUser"
 MIDDLEWARE = [
