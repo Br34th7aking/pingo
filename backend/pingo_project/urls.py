@@ -22,4 +22,5 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/auth/", include("accounts.urls")),
     path("api/servers/", include("servers.urls")),
+    path("api/servers/<uuid:server_id>/channels/", include("pingo_channels.urls")),
 ]

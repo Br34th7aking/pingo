@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     "accounts",
     "common",
     "servers",
+    "pingo_channels",
 ]
 
 AUTH_USER_MODEL = "accounts.CustomUser"
