@@ -67,3 +67,85 @@ class Message(TimeStampedBaseModel):
 
     def __str__(self):
         return f"{self.content[:30]}"
+
+
+# Add these models to your existing pingo_channels/models.py file
+
+
+class DirectMessageConversation(TimeStampedBaseModel):
+    participant1 = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="dm_conversations_as_p1",
+    )
+    participant2 = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="dm_conversations_as_p2",
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["participant1", "participant2"], name="unique_dm_conversation"
+            )
+        ]
+        ordering = ["-updated_at"]
+
+    def __str__(self):
+        return (
+            f"DM: {self.participant1.display_name} ↔ {self.participant2.display_name}"
+        )
+
+    def get_other_participant(self, user):
+        if user == self.participant1:
+            return self.participant2
+        elif user == self.participant2:
+            return self.participant1
+        else:
+            return None
+
+    def is_participant(self, user):
+        return user in [self.participant1, self.participant2]
+
+    @classmethod
+    def get_or_create_conversation(cls, user1, user2):
+
+        if user1 == user2:
+            # block the conversation
+            raise ValueError(
+                "Can not create a conversation with yourself. Create a private server instead."
+            )
+
+        if str(user1.id) > str(user2.id):
+            user1, user2 = user2, user1
+
+        conversation, created = cls.objects.get_or_create(
+            participant1=user1, participant2=user2
+        )
+        return conversation, created
+
+
+class DirectMessage(TimeStampedBaseModel):
+
+    conversation = models.ForeignKey(
+        DirectMessageConversation, on_delete=models.CASCADE, related_name="messages"
+    )
+    sender = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    content = models.TextField()
+    is_read = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["conversation", "-created_at"]),
+            models.Index(fields=["sender", "-created_at"]),
+        ]
+
+    def __str__(self):
+        return f"DM from {self.sender.username}: {self.content[:50]}..."
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        self.conversation.updated_at = self.created_at
+        self.conversation.save(update_fields=["updated_at"])
