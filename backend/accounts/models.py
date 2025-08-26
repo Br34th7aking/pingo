@@ -37,6 +37,17 @@ class CustomUser(AbstractUser):
     bio = models.TextField(max_length=500, blank=True, null=True)
     is_email_verified = models.BooleanField(default=False)
     avatar = models.ImageField(upload_to="avatars/", blank=True, null=True)
+
+    DM_PRIVACY_CHOICES = (
+        ("everyone", "Everyone can dm me"),
+        ("friends", "Only friends can dm me"),  # TODO: friend system
+        ("none", "No one can dm me"),
+    )
+
+    allow_dms_from = models.CharField(
+        choices=DM_PRIVACY_CHOICES, max_length=20, default="everyone"
+    )
+
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
 
@@ -44,3 +55,13 @@ class CustomUser(AbstractUser):
 
     def __str__(self):
         return f"{self.display_name} ({self.email})"
+
+    def can_receive_dm_from(self, sender):
+        """Check if this user can receive DM from sender_user"""
+        if self.allow_dms_from == "everyone":
+            return True
+        elif self.allow_dms_from == "none":
+            return False
+        elif self.allow_dms_from == "friends":
+            return True
+        return False

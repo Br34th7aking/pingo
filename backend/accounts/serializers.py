@@ -48,5 +48,6 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "avatar",
             "is_email_verified",
             "date_joined",
+            "allow_dms_from",
         ]
         read_only_fields = ["id", "email", "is_email_verified", "date_joined"]
