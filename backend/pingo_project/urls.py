@@ -23,4 +23,5 @@ urlpatterns = [
     path("api/auth/", include("accounts.urls")),
     path("api/servers/", include("servers.urls")),
     path("api/servers/<uuid:server_id>/channels/", include("pingo_channels.urls")),
+    path("api/dm/conversations/", include("pingo_channels.dm_urls")),
 ]

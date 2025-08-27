@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from .serializers import UserRegistrationSerializer, UserProfileSerializer
 from rest_framework.permissions import IsAuthenticated
+from django.db.models import Q
 
 
 class RegisterView(APIView):
@@ -39,3 +40,43 @@ class ProfileView(APIView):
                 status=status.HTTP_200_OK,
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# Add this to your existing accounts/views.py file
+
+# Update your imports to include:
+from .serializers import (
+    UserRegistrationSerializer,
+    UserProfileSerializer,
+    UserSearchSerializer,
+)
+from .models import CustomUser
+from django.db import models
+
+
+class UserSearchView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        query = request.query_params.get("q", "").strip()
+
+        if not query:
+            return Response(
+                {"error": "Search query is required. Use ?q=search_term"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if len(query) < 2:
+            return Response(
+                {"error": "Search query must be at least 2 characters long."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        users = CustomUser.objects.filter(
+            Q(display_name__icontains=query) | Q(email__icontains=query)
+        ).exclude(id=request.user.id)[:20]
+
+        serializer = UserSearchSerializer(
+            users, many=True, context={"request": request}
+        )
+        return Response(serializer.data, status=status.HTTP_200_OK)

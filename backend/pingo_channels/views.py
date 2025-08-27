@@ -1,13 +1,18 @@
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.views import APIView
-from .models import Channel, Message
+from django.db.models import Q
+from .models import Channel, Message, DirectMessageConversation, DirectMessage
 from rest_framework.permissions import IsAuthenticated
 from .serializers import (
     ChannelSerializer,
     ChannelCreateSerializer,
     MessageCreateSerializer,
     MessageSerializer,
+    DirectMessageConversationCreateSerializer,
+    DirectMessageConversationSerializer,
+    DirectMessageCreateSerializer,
+    DirectMessageSerializer,
 )
 from servers.models import Server
 from .utils import get_channel_and_check_access, get_message_and_check_access
@@ -271,3 +276,114 @@ class MessageDetailView(APIView):
         message.is_deleted = True
         message.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class DirectMessageConversationListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        conversations = DirectMessageConversation.objects.filter(
+            Q(participant1=request.user) | Q(participant2=request.user)
+        ).order_by("-updated_at")
+
+        serializer = DirectMessageConversationSerializer(
+            conversations, many=True, context={"request": request}
+        )
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        conversation_serializer = DirectMessageConversationCreateSerializer(
+            data=request.data, context={"request": request}
+        )
+        if not conversation_serializer.is_valid():
+            return Response(
+                conversation_serializer.errors, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        conversation = conversation_serializer.save()
+
+        response_serializer = DirectMessageConversationSerializer(
+            conversation, context={"request": request}
+        )
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+
+# Add this to your pingo_channels/views.py file
+
+
+class DirectMessageConversationDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, conversation_id):
+        try:
+            conversation = DirectMessageConversation.objects.get(pk=conversation_id)
+        except DirectMessageConversation.DoesNotExist:
+            return Response(
+                {"error": "Conversation not found."}, status=status.HTTP_404_NOT_FOUND
+            )
+
+        if not conversation.is_participant(request.user):
+            return Response(
+                {"error": "You are not a participant in this conversation."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        conversation_serializer = DirectMessageConversationSerializer(
+            conversation, context={"request": request}
+        )
+        return Response(conversation_serializer.data, status=status.HTTP_200_OK)
+
+
+class DirectMessageListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, conversation_id):
+        try:
+            conversation = DirectMessageConversation.objects.get(pk=conversation_id)
+        except DirectMessageConversation.DoesNotExist:
+            return Response(
+                {"error": "Conversation not found."}, status=status.HTTP_404_NOT_FOUND
+            )
+
+        if not conversation.is_participant(request.user):
+            return Response(
+                {"error": "You are not a participant in this conversation."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        messages = conversation.messages.all()
+        serializer = DirectMessageSerializer(
+            messages, many=True, context={"request": request}
+        )
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request, conversation_id):
+        try:
+            conversation = DirectMessageConversation.objects.get(pk=conversation_id)
+        except DirectMessageConversation.DoesNotExist:
+            return Response(
+                {"error": "Conversation not found."}, status=status.HTTP_404_NOT_FOUND
+            )
+
+        if not conversation.is_participant(request.user):
+            return Response(
+                {"error": "You are not a participant in this conversation."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        message_serializer = DirectMessageCreateSerializer(
+            data=request.data, context={"request": request}
+        )
+
+        if not message_serializer.is_valid():
+            return Response(
+                message_serializer.errors, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        message = message_serializer.save(
+            sender=request.user, conversation=conversation
+        )
+        response_serializer = DirectMessageSerializer(
+            message, context={"request": request}
+        )
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
