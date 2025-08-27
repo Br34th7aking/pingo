@@ -51,3 +51,18 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "allow_dms_from",
         ]
         read_only_fields = ["id", "email", "is_email_verified", "date_joined"]
+
+
+class UserSearchSerializer(serializers.ModelSerializer):
+    can_dm = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CustomUser
+        fields = ["id", "email", "display_name", "avatar", "can_dm"]
+
+    def get_can_dm(self, obj):
+        """Check if current user can DM this user"""
+        request = self.context.get("request")
+        if request and request.user.is_authenticated:
+            return obj.can_receive_dm_from(request.user)
+        return False

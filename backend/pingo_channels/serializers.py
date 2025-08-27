@@ -3,6 +3,7 @@ from .models import Channel, Message, DirectMessage, DirectMessageConversation
 from accounts.serializers import UserProfileSerializer
 from servers.serializers import ServerSerializer
 from django.conf import settings
+from django.contrib.auth import get_user_model
 
 
 class ChannelCreateSerializer(serializers.ModelSerializer):
@@ -77,6 +78,7 @@ class DirectMessageCreateSerializer(serializers.ModelSerializer):
 
 class DirectMessageSerializer(serializers.ModelSerializer):
     sender = UserProfileSerializer(read_only=True)
+    conversation_id = serializers.UUIDField(source="conversation.id", read_only=True)
 
     class Meta:
         model = DirectMessage
@@ -84,7 +86,7 @@ class DirectMessageSerializer(serializers.ModelSerializer):
             "id",
             "content",
             "sender",
-            "conversation",
+            "conversation_id",
             "created_at",
             "updated_at",
             "is_read",
@@ -98,7 +100,7 @@ class DirectMessageSerializer(serializers.ModelSerializer):
         return data
 
 
-User = settings.AUTH_USER_MODEL
+User = get_user_model()
 
 
 class DirectMessageConversationCreateSerializer(serializers.Serializer):
