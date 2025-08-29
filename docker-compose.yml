@@ -51,19 +51,19 @@ services:
             daphne -b 0.0.0.0 -p 8000 pingo_project.asgi:application"
 
   # React Frontend
-  # frontend:
-  #   build: ./frontend
-  #   container_name: pingo_frontend
-  #   environment:
-  #     - VITE_API_URL=http://localhost/api
-  #     - VITE_WS_URL=ws://localhost/ws
-  #   volumes:
-  #     - ./frontend:/app
-  #     - /app/node_modules
-  #   ports:
-  #     - "3000:3000"
-  #   restart: unless-stopped
-  #   command: npm run dev
+  frontend:
+    build: ./frontend
+    container_name: pingo_frontend
+    environment:
+      - VITE_API_URL=http://localhost/api
+      - VITE_WS_URL=ws://localhost/ws
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    command: npm run dev
 
   # Nginx Reverse Proxy
   nginx:
@@ -75,7 +75,7 @@ services:
       - ./nginx/conf:/etc/nginx/conf.d
     depends_on:
       - backend
-      # - frontend
+      - frontend
     restart: unless-stopped
 
 volumes:
