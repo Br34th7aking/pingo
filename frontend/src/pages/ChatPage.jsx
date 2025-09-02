@@ -4,6 +4,7 @@ import { useChat } from "../contexts/ChatContext";
 import { useServer } from "../contexts/ServerContext";
 import { useUI } from "../contexts/UIContext";
 import { useState, useEffect } from "react";
+import UserProfile from "../components/ui/UserProfile";
 
 export default function ChatPage() {
   const { user, isAuthenticated } = useAuth();
@@ -225,18 +226,7 @@ export default function ChatPage() {
         </div>
 
         {/* User info */}
-        <div className="p-4 border-t border-base-content/10">
-          <div className="flex items-center space-x-2">
-            <div className="avatar">
-              <div className="w-8 rounded-full bg-primary/20">
-                <span className="text-xs">👤</span>
-              </div>
-            </div>
-            <span className="text-sm">
-              {isAuthenticated ? user?.username : "Guest"}
-            </span>
-          </div>
-        </div>
+        <UserProfile />
       </div>
 
       {/* Main Chat Area */}

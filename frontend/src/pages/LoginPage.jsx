@@ -1,44 +1,32 @@
-import { Link } from "react-router";
-import { useAuth } from "../contexts/AuthContext";
+import LoginForm from "../components/ui/LoginForm";
 
 export default function LoginPage() {
-  const { user, isAuthenticated, login } = useAuth();
-
-  const handleTestLogin = () => {
-    login(
-      { id: 1, email: "test@example.com", username: "TestUser" },
-      "fake-jwt-token"
-    );
-  };
-
   return (
-    <div className="hero min-h-screen bg-base-200">
-      <div className="hero-content text-center">
-        <div className="max-w-md">
-          <h1 className="text-5xl font-bold text-primary">Pingo</h1>
-          <p className="py-6">Your Discord-like chat experience</p>
+    <div className="min-h-screen bg-base-200 flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        {/* Brand Header */}
+        <div className="text-center mb-8">
+          <h1 className="text-6xl font-bold text-primary mb-2">Pingo</h1>
+          <p className="text-lg text-base-content/70">
+            Your Discord-like chat experience
+          </p>
+        </div>
 
-          {/* Test the context */}
-          {isAuthenticated ? (
-            <div>
-              <p className="mb-4">Welcome, {user.username}!</p>
-              <Link to="/chat" className="btn btn-primary">
-                Enter Chat
-              </Link>
-            </div>
-          ) : (
-            <div>
-              <button
-                onClick={handleTestLogin}
-                className="btn btn-primary mr-4"
-              >
-                Test Login
-              </button>
-              <Link to="/chat" className="btn btn-outline">
-                Enter as Guest
-              </Link>
-            </div>
-          )}
+        {/* Login Form */}
+        <LoginForm />
+
+        {/* Additional Links */}
+        <div className="text-center mt-6 space-y-2">
+          <p className="text-sm text-base-content/50">
+            By signing in, you agree to our{" "}
+            <a href="/terms" className="link link-primary text-xs">
+              Terms
+            </a>{" "}
+            and{" "}
+            <a href="/privacy" className="link link-primary text-xs">
+              Privacy Policy
+            </a>
+          </p>
         </div>
       </div>
     </div>
