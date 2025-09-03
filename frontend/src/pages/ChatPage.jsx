@@ -3,7 +3,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useChat } from "../contexts/ChatContext";
 import { useServer } from "../contexts/ServerContext";
 import { useUI } from "../contexts/UIContext";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import UserProfile from "../components/ui/UserProfile";
 import ServerCreationModal from "../components/server/ServerCreationModal";
 import ServerSettingsModal from "../components/server/ServerSettingsModal";
@@ -13,8 +13,11 @@ export default function ChatPage() {
   const {
     messages,
     activeChannelId,
+    activeServerId: chatActiveServerId,
     connectionStatus,
     unreadCounts,
+    isLoadingMessages,
+    error: chatError,
     setActiveChannel,
     sendMessage,
   } = useChat();
@@ -35,6 +38,8 @@ export default function ChatPage() {
   const [messageInput, setMessageInput] = useState("");
   const [showCreateServerModal, setShowCreateServerModal] = useState(false);
   const [showServerSettingsModal, setShowServerSettingsModal] = useState(false);
+  const messagesEndRef = useRef(null);
+  const messageInputRef = useRef(null);
 
   // Load user's servers when component mounts
   useEffect(() => {
@@ -55,26 +60,58 @@ export default function ChatPage() {
     }
   }, [activeServerId, loadServerChannels]);
 
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages[activeChannelId]]);
+
+  // Auto-select first channel when server changes
+  useEffect(() => {
+    if (activeServerId && activeServerChannels.length > 0) {
+      // Check if current channel belongs to current server
+      const currentChannelBelongsToServer = activeServerChannels.some(
+        (channel) => channel.id === activeChannelId
+      );
+
+      if (!activeChannelId || !currentChannelBelongsToServer) {
+        const firstChannel = activeServerChannels[0];
+        handleChannelClick(firstChannel.id);
+      }
+    }
+  }, [activeServerId, activeServerChannels, activeChannelId]);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
   const handleSendMessage = (e) => {
     e.preventDefault();
     if (messageInput.trim() && activeChannelId) {
       sendMessage(messageInput);
       setMessageInput("");
-      addToast({
-        type: "success",
-        message: "Message sent!",
-        duration: 2000,
-      });
+
+      // Focus back to input
+      setTimeout(() => {
+        messageInputRef.current?.focus();
+      }, 100);
     }
   };
 
   const handleServerClick = (serverId) => {
     setActiveServer(serverId);
-    setActiveChannel(null);
+    // Don't clear active channel here - let the channel auto-selection handle it
   };
 
   const handleChannelClick = (channelId) => {
-    setActiveChannel(channelId);
+    if (activeServerId) {
+      setActiveChannel(channelId, activeServerId);
+    } else {
+      addToast({
+        type: "error",
+        message: "Please select a server first",
+        duration: 3000,
+      });
+    }
   };
 
   const handleThemeChange = (newTheme) => {
@@ -86,19 +123,58 @@ export default function ChatPage() {
     });
   };
 
+  const handleKeyPress = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage(e);
+    }
+  };
+
   const getCurrentUserRole = () => {
     if (!activeServer || !user) return null;
     if (activeServer.owner.id === user.id) return "owner";
-
-    // You might need to load server members to get the role
-    // For now, assume member if not owner
     return "member";
+  };
+
+  const getConnectionStatusInfo = () => {
+    switch (connectionStatus) {
+      case "connecting":
+        return { icon: "🔄", color: "badge-warning", text: "Connecting..." };
+      case "connected":
+        return { icon: "🟢", color: "badge-success", text: "Connected" };
+      case "disconnected":
+        return { icon: "🔴", color: "badge-ghost", text: "Disconnected" };
+      case "error":
+        return { icon: "⚠️", color: "badge-error", text: "Connection Error" };
+      default:
+        return { icon: "🔴", color: "badge-ghost", text: "Offline" };
+    }
+  };
+
+  const formatMessageTime = (timestamp) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+
+    if (date.toDateString() === now.toDateString()) {
+      return date.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } else {
+      return (
+        date.toLocaleDateString() +
+        " " +
+        date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      );
+    }
   };
 
   const activeMessages = activeChannelId ? messages[activeChannelId] || [] : [];
   const activeChannel = Array.isArray(activeServerChannels)
     ? activeServerChannels.find((c) => c.id === activeChannelId)
     : null;
+
+  const statusInfo = getConnectionStatusInfo();
 
   return (
     <div className="flex h-screen bg-base-100">
@@ -150,7 +226,7 @@ export default function ChatPage() {
           className="w-12 h-12 rounded-full bg-base-200 hover:bg-base-100 hover:rounded-2xl transition-all duration-200 flex items-center justify-center text-2xl group relative"
           title="Create Server"
         >
-          +{/* Tooltip */}
+          +
           <div className="absolute left-16 top-0 bg-base-content text-base-100 text-sm px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
             Create Server
           </div>
@@ -163,7 +239,6 @@ export default function ChatPage() {
           title="Discover Servers"
         >
           🔍
-          {/* Tooltip */}
           <div className="absolute left-16 top-0 bg-base-content text-base-100 text-sm px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
             Discover Servers
           </div>
@@ -189,7 +264,7 @@ export default function ChatPage() {
                 </button>
               </div>
 
-              <div className="flex items-center justify-between text-sm text-base-content/70">
+              <div className="flex items-center justify-between text-sm text-base-content/70 mb-2">
                 <span>{activeServer.member_count} members</span>
                 <span
                   className={`badge badge-xs ${
@@ -203,7 +278,7 @@ export default function ChatPage() {
               </div>
 
               {activeServer.description && (
-                <p className="text-xs text-base-content/60 mt-2 line-clamp-2">
+                <p className="text-xs text-base-content/60 mb-2 line-clamp-2">
                   {activeServer.description}
                 </p>
               )}
@@ -216,6 +291,16 @@ export default function ChatPage() {
               </p>
             </div>
           )}
+
+          {/* Connection Status */}
+          <div className="flex items-center justify-between text-xs mt-2">
+            <span>Status:</span>
+            <div className="flex items-center gap-1">
+              <span className={`badge badge-xs ${statusInfo.color}`}>
+                {statusInfo.icon} {statusInfo.text}
+              </span>
+            </div>
+          </div>
 
           {/* Theme Switcher */}
           <div className="flex items-center gap-2 mt-3">
@@ -238,19 +323,6 @@ export default function ChatPage() {
                 🌙
               </button>
             </div>
-          </div>
-
-          <div className="text-xs mt-1">
-            Status:{" "}
-            <span
-              className={`badge badge-xs ${
-                connectionStatus === "connected"
-                  ? "badge-success"
-                  : "badge-warning"
-              }`}
-            >
-              {connectionStatus}
-            </span>
           </div>
         </div>
 
@@ -370,106 +442,196 @@ export default function ChatPage() {
         </div>
 
         {/* Messages Area */}
-        <div className="flex-1 p-4 overflow-y-auto">
-          {activeChannelId ? (
-            <div className={`space-y-${compactMode ? "2" : "4"}`}>
-              {activeMessages.length === 0 ? (
-                <div className="text-center text-base-content/50 py-8">
-                  <h3 className="text-lg mb-2">
-                    Welcome to #{activeChannel?.name}!
-                  </h3>
-                  <p>
-                    {activeChannel?.description || "Start the conversation!"}
-                  </p>
-                </div>
-              ) : (
-                activeMessages.map((message) => (
-                  <div
-                    key={message.id}
-                    className={`chat ${
-                      message.author === "You" ? "chat-end" : "chat-start"
-                    } ${compactMode ? "chat-compact" : ""}`}
-                  >
-                    <div className="chat-image avatar">
-                      <div
-                        className={`${
-                          compactMode ? "w-6" : "w-10"
-                        } rounded-full ${
-                          message.author === "You"
-                            ? "bg-primary/20"
-                            : "bg-secondary/20"
-                        }`}
-                      >
-                        <span className={compactMode ? "text-xs" : "text-sm"}>
-                          {message.author?.charAt(0)?.toUpperCase() || "?"}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="chat-header">
-                      {message.author}
-                      <time className="text-xs opacity-50 ml-2">
-                        {new Date(message.timestamp).toLocaleTimeString()}
-                      </time>
-                      {message.isOptimistic && (
-                        <span className="badge badge-ghost badge-xs ml-2">
-                          sending...
-                        </span>
-                      )}
-                    </div>
-                    <div
-                      className={`chat-bubble ${
-                        message.author === "You" ? "chat-bubble-primary" : ""
-                      } ${compactMode ? "text-sm" : ""}`}
-                    >
-                      {message.content}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          ) : (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center text-base-content/50">
-                <div className="text-6xl mb-4">💬</div>
-                <h3 className="text-lg mb-2">Welcome to Pingo!</h3>
-                <p className="mb-4">
-                  {!activeServerId
-                    ? "Create or join a server to start chatting with your community."
-                    : "Select a channel from the sidebar to start chatting."}
-                </p>
-                {!activeServerId && (
-                  <div className="flex gap-2 justify-center">
-                    <button
-                      onClick={() => setShowCreateServerModal(true)}
-                      className="btn btn-primary btn-sm"
-                    >
-                      Create Server
-                    </button>
-                    <Link to="/discover" className="btn btn-outline btn-sm">
-                      Discover Servers
-                    </Link>
-                  </div>
-                )}
+        <div className="flex-1 overflow-hidden flex flex-col">
+          {/* Error Display */}
+          {chatError && (
+            <div className="mx-4 mt-4">
+              <div className="alert alert-error">
+                <span>{chatError}</span>
               </div>
             </div>
           )}
+
+          {/* Messages Container */}
+          <div className="flex-1 overflow-y-auto px-4 py-4">
+            {activeChannelId ? (
+              <>
+                {/* Loading State */}
+                {isLoadingMessages && (
+                  <div className="flex justify-center py-8">
+                    <div className="flex items-center gap-2">
+                      <span className="loading loading-spinner loading-sm"></span>
+                      <span className="text-sm text-base-content/70">
+                        Loading messages...
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Messages */}
+                {!isLoadingMessages && (
+                  <>
+                    {activeMessages.length === 0 ? (
+                      <div className="text-center text-base-content/50 py-8">
+                        <h3 className="text-lg mb-2">
+                          Welcome to #{activeChannel?.name}!
+                        </h3>
+                        <p>
+                          {activeChannel?.description ||
+                            "Start the conversation!"}
+                        </p>
+                      </div>
+                    ) : (
+                      <div
+                        className={`space-y-${compactMode ? "2" : "4"} pb-4`}
+                      >
+                        {activeMessages.map((message, index) => {
+                          const showAvatar =
+                            index === 0 ||
+                            activeMessages[index - 1]?.author?.id !==
+                              message.author?.id ||
+                            new Date(message.created_at).getTime() -
+                              new Date(
+                                activeMessages[index - 1]?.created_at || 0
+                              ).getTime() >
+                              5 * 60 * 1000;
+
+                          return (
+                            <div
+                              key={message.id}
+                              className={`flex gap-3 px-2 py-1 hover:bg-base-200/50 rounded group ${
+                                message.isOptimistic ? "opacity-70" : ""
+                              }`}
+                            >
+                              {/* Avatar */}
+                              <div className="flex-shrink-0 w-10">
+                                {showAvatar && (
+                                  <div className="w-10 h-10 rounded-full bg-base-300 flex items-center justify-center">
+                                    {message.author?.avatar ? (
+                                      <img
+                                        src={message.author.avatar}
+                                        alt={
+                                          message.author.display_name ||
+                                          message.author.username
+                                        }
+                                        className="w-full h-full rounded-full object-cover"
+                                      />
+                                    ) : (
+                                      <span className="text-sm font-medium">
+                                        {(
+                                          message.author?.display_name ||
+                                          message.author?.username ||
+                                          "U"
+                                        )
+                                          .charAt(0)
+                                          .toUpperCase()}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Message Content */}
+                              <div className="flex-1 min-w-0">
+                                {showAvatar && (
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="font-semibold text-sm">
+                                      {message.author?.display_name ||
+                                        message.author?.username ||
+                                        "Unknown User"}
+                                    </span>
+                                    <span className="text-xs text-base-content/50">
+                                      {formatMessageTime(message.created_at)}
+                                    </span>
+                                    {message.isOptimistic && (
+                                      <span className="badge badge-ghost badge-xs">
+                                        sending...
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                                <div
+                                  className={`text-sm ${
+                                    compactMode
+                                      ? "leading-tight"
+                                      : "leading-relaxed"
+                                  }`}
+                                >
+                                  {message.content}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <div ref={messagesEndRef} />
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center text-base-content/50">
+                  <div className="text-6xl mb-4">💬</div>
+                  <h3 className="text-lg mb-2">Welcome to Pingo!</h3>
+                  <p className="mb-4">
+                    {!activeServerId
+                      ? "Create or join a server to start chatting with your community."
+                      : "Select a channel from the sidebar to start chatting."}
+                  </p>
+                  {!activeServerId && (
+                    <div className="flex gap-2 justify-center">
+                      <button
+                        onClick={() => setShowCreateServerModal(true)}
+                        className="btn btn-primary btn-sm"
+                      >
+                        Create Server
+                      </button>
+                      <Link to="/discover" className="btn btn-outline btn-sm">
+                        Discover Servers
+                      </Link>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Message Input */}
         {activeChannelId && (
           <div className="p-4 border-t border-base-content/10">
-            <form onSubmit={handleSendMessage} className="flex space-x-2">
-              <input
-                type="text"
-                placeholder={`Message #${activeChannel?.name}...`}
-                className="input input-bordered flex-1"
-                value={messageInput}
-                onChange={(e) => setMessageInput(e.target.value)}
-              />
-              <button type="submit" className="btn btn-primary">
+            <form onSubmit={handleSendMessage} className="flex gap-2">
+              <div className="flex-1 relative">
+                <input
+                  ref={messageInputRef}
+                  type="text"
+                  placeholder={`Message #${activeChannel?.name}...`}
+                  className="input input-bordered w-full pr-20"
+                  value={messageInput}
+                  onChange={(e) => setMessageInput(e.target.value)}
+                  onKeyDown={handleKeyPress}
+                  disabled={connectionStatus !== "connected"}
+                />
+                {messageInput.length > 0 && (
+                  <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-base-content/50">
+                    {messageInput.length}/2000
+                  </div>
+                )}
+              </div>
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={
+                  !messageInput.trim() || connectionStatus !== "connected"
+                }
+              >
                 Send
               </button>
             </form>
+            <div className="text-xs text-base-content/50 mt-1">
+              Press Enter to send • Shift+Enter for new line
+            </div>
           </div>
         )}
       </div>
