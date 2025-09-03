@@ -18,21 +18,54 @@ class ServerListView(APIView):
     def get(self, request):
         servers = Server.objects.all()
 
+        # Handle different query modes
+        discovery = request.query_params.get("discovery")
+        my_servers = request.query_params.get("my_servers")
         member_type = request.query_params.get("member_type")
         visibility = request.query_params.get("visibility")
         search = request.query_params.get("search")
 
-        if member_type == "owner":
-            servers = servers.filter(owner=request.user)
-        elif member_type in ["admin", "moderator", "member"]:
-            server_ids = ServerMembership.objects.filter(
-                user=request.user, role=member_type
+        # Discovery mode - show public servers user can join
+        if discovery == "true":
+            servers = servers.filter(visibility="public")
+
+            # Get servers user is already in (as owner or member)
+            user_server_ids = ServerMembership.objects.filter(
+                user=request.user
             ).values_list("server_id", flat=True)
+
+            # Exclude servers user already owns or is member of
+            servers = servers.exclude(Q(owner=request.user) | Q(id__in=user_server_ids))
+
+        # My servers mode - show only user's joined servers
+        elif my_servers == "true" or (
+            not any([member_type, visibility, search, discovery])
+        ):
+            # Default behavior: return user's servers if no specific filtering
+            server_ids = ServerMembership.objects.filter(user=request.user).values_list(
+                "server_id", flat=True
+            )
+
             servers = servers.filter(
                 Q(owner=request.user) | Q(id__in=server_ids)
             ).distinct()
 
-        if visibility:
+        # Legacy filtering by member role (keep existing behavior)
+        else:
+            if member_type == "owner":
+                servers = servers.filter(owner=request.user)
+            elif member_type in ["admin", "moderator", "member"]:
+                server_ids = ServerMembership.objects.filter(
+                    user=request.user, role=member_type
+                ).values_list("server_id", flat=True)
+                servers = servers.filter(
+                    Q(owner=request.user) | Q(id__in=server_ids)
+                ).distinct()
+
+        # Apply common filters (visibility, search)
+        if (
+            visibility and discovery != "true"
+        ):  # Don't override discovery visibility filter
             servers = servers.filter(visibility=visibility)
         if search:
             servers = servers.filter(name__icontains=search)

@@ -96,12 +96,6 @@ export function AuthProvider({ children }) {
         const userData = localStorage.getItem("pingo_user");
         const refreshToken = localStorage.getItem("pingo_refresh_token");
 
-        console.log("Initializing auth from localStorage:", {
-          token,
-          userData,
-          refreshToken,
-        }); // Debug
-
         if (token && userData) {
           const user = JSON.parse(userData);
           dispatch({
@@ -281,7 +275,7 @@ export function AuthProvider({ children }) {
 
     try {
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/auth/refresh/`,
+        `${import.meta.env.VITE_API_URL}/auth/token/refresh/`,
         {
           method: "POST",
           headers: {
@@ -336,14 +330,21 @@ export function AuthProvider({ children }) {
       throw new Error("No authentication token available");
     }
 
+    // Build headers conditionally - don't set Content-Type for FormData
+    const headers = {
+      ...options.headers,
+      Authorization: `Bearer ${state.token}`,
+    };
+
+    // Only set Content-Type for non-FormData requests
+    if (!options.body || !(options.body instanceof FormData)) {
+      headers["Content-Type"] = "application/json";
+    }
+
     // First attempt with current token
     const response = await fetch(url, {
       ...options,
-      headers: {
-        ...options.headers,
-        Authorization: `Bearer ${state.token}`,
-        "Content-Type": "application/json",
-      },
+      headers,
     });
 
     // If token expired (401), try to refresh and retry
@@ -353,17 +354,22 @@ export function AuthProvider({ children }) {
       const refreshResult = await refreshToken();
 
       if (refreshResult.success) {
+        // Build headers for retry - same logic
+        const retryHeaders = {
+          ...options.headers,
+          Authorization: `Bearer ${refreshResult.token}`,
+        };
+
+        if (!options.body || !(options.body instanceof FormData)) {
+          retryHeaders["Content-Type"] = "application/json";
+        }
+
         // Retry the original request with new token
         return fetch(url, {
           ...options,
-          headers: {
-            ...options.headers,
-            Authorization: `Bearer ${refreshResult.token}`,
-            "Content-Type": "application/json",
-          },
+          headers: retryHeaders,
         });
       } else {
-        // Refresh failed, user will be logged out by refreshToken function
         throw new Error("Authentication failed");
       }
     }
