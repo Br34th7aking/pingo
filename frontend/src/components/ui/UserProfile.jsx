@@ -4,7 +4,6 @@ import { useAuth } from "../../contexts/AuthContext";
 export default function UserProfile({ showDropdown = true, compact = false }) {
   const { user, logout } = useAuth();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  console.log("user", user);
   if (!user) {
     return null;
   }
